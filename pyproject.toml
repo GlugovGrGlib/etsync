@@ -1,0 +1,30 @@
+[project]
+name = "etsync"
+version = "0.1.0"
+description = "Scriptable Etsy shop management — export/import shop data via the Etsy API"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "dynaconf>=3.2",
+    "etsyv3>=0.0.7",
+    "httpx>=0.28.1",
+    "tomli-w>=1.2",
+    "typer>=0.15",
+]
+
+[project.scripts]
+etsync = "etsync.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.9",
+    "ty>=0.0.24",
+]
+
+[tool.ruff]
+line-length = 120
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
