@@ -1,0 +1,6 @@
+[default]
+api_base_url = "https://api.etsy.com"
+# data_dir defaults to .etsync/ in project root, with shop name as subdirectory
+
+# [shop2]
+# data_dir = "~/.etsync/data/shop2"

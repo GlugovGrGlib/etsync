@@ -1,6 +1,7 @@
 .hermes*
 
-# etsync synced data (lives outside git for multi-shop reuse)
+# etsync synced data
+.etsync/
 data/
 .secrets.toml
 
