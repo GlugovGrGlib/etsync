@@ -28,12 +28,17 @@ def _save_tokens(access_token: str, refresh_token: str, expires_at: float) -> No
 
         data = tomllib.loads(path.read_text())
 
-    env = settings.current_env.lower()
-    if env not in data:
-        data[env] = {}
-    data[env]["access_token"] = access_token
-    data[env]["refresh_token"] = refresh_token
-    data[env]["expires_at"] = expires_at
+    # Find the existing section (case-insensitive) or use the current env name
+    target_env = settings.current_env
+    for key in data:
+        if key.lower() == target_env.lower():
+            target_env = key
+            break
+    if target_env not in data:
+        data[target_env] = {}
+    data[target_env]["access_token"] = access_token
+    data[target_env]["refresh_token"] = refresh_token
+    data[target_env]["expires_at"] = expires_at
 
     path.write_bytes(tomli_w.dumps(data).encode())
 

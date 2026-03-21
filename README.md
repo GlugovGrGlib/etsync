@@ -29,9 +29,73 @@ etsync login
 
 ```bash
 etsync pull listings    # download all active listings as JSON
+etsync pull stats       # snapshot listing stats into DuckDB
+etsync diff listings    # show changes since last sync
+etsync query "SQL"      # query the analytics database
 ```
 
-Listings are saved to `.etsync/{shop_name}/listings/` in the project directory. Change the base with `data_dir` in `settings.toml`.
+Listings are saved to `.etsync/{shop_name}/listings/` in the project directory. Each sync is auto-committed to a local git repo for change tracking.
+
+## Architecture
+
+```mermaid
+graph TD
+    subgraph CLI["CLI Layer (Typer)"]
+        LOGIN[etsync login]
+        PULL_LISTINGS[etsync pull listings]
+        PULL_STATS[etsync pull stats]
+        QUERY[etsync query]
+        DIFF[etsync diff listings]
+    end
+
+    subgraph Modules["Module Layer"]
+        AUTH[auth.py<br/>OAuth 2.0 flow]
+        CONFIG[config.py<br/>dynaconf settings]
+        LISTINGS[listings/<br/>pull & index]
+        ANALYTICS[analytics/<br/>stats & query]
+        DATAREPO[data_repo.py<br/>git-tracked storage]
+    end
+
+    subgraph External["External Services"]
+        ETSY_API[Etsy API<br/>OAuth 2.0 + REST v3]
+        DUCKDB[DuckDB<br/>analytics storage]
+    end
+
+    subgraph Storage["Data Storage (.etsync/{shop}/)"]
+        LISTING_FILES[listings/*.json]
+        INDEX[index.json]
+        ANALYTICSDB[analytics.db]
+        GITDIR[.git/]
+    end
+
+    LOGIN --> AUTH
+    PULL_LISTINGS --> LISTINGS
+    PULL_STATS --> ANALYTICS
+    QUERY --> ANALYTICS
+    DIFF --> DATAREPO
+
+    AUTH --> ETSY_API
+    LISTINGS --> ETSY_API
+    LISTINGS --> DATAREPO
+    ANALYTICS --> DUCKDB
+    DATAREPO --> GITDIR
+
+    CONFIG -.-> AUTH
+    CONFIG -.-> LISTINGS
+    CONFIG -.-> ANALYTICS
+```
+
+## Data Directory
+
+```
+.etsync/{shop_name}/
+├── listings/
+│   ├── {listing_id}.json
+│   ├── index.json
+│   └── ...
+├── analytics.db
+└── .git/              # auto-managed, tracks sync history
+```
 
 ## Multi-shop
 

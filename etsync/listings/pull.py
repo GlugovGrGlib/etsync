@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import typer
@@ -57,23 +57,40 @@ def _save_listing(listings_dir: Path, listing: dict) -> None:
     path.write_text(json.dumps(listing, indent=2, ensure_ascii=False) + "\n")
 
 
-def _save_index(listings_dir: Path, listings: list[dict]) -> None:
-    entries = []
-    for listing in listings:
-        entries.append(
-            {
-                "listing_id": listing["listing_id"],
-                "title": listing.get("title", ""),
-                "state": listing.get("state", ""),
-                "updated_timestamp": listing.get("last_modified_timestamp", 0),
-            }
-        )
-    index = {"listings": entries}
+def _build_index_entry(listing: dict) -> dict:
+    """Build a single index entry with enhanced metadata."""
+    listing_id = listing["listing_id"]
+    price_data = listing.get("price", {})
+    return {
+        "listing_id": listing_id,
+        "title": listing.get("title", ""),
+        "state": listing.get("state", ""),
+        "updated_timestamp": listing.get("last_modified_timestamp", 0),
+        "url": f"https://www.etsy.com/listing/{listing_id}",
+        "creation_timestamp": listing.get("creation_timestamp", 0),
+        "price": {
+            "amount": price_data.get("amount", 0),
+            "currency": price_data.get("currency_code", ""),
+        },
+        "tags": listing.get("tags", []),
+        "quantity": listing.get("quantity", 0),
+    }
+
+
+def _save_index(listings_dir: Path, listings: list[dict], synced_at: str) -> None:
+    entries = [_build_index_entry(listing) for listing in listings]
+    index = {
+        "synced_at": synced_at,
+        "count": len(entries),
+        "listings": entries,
+    }
     (listings_dir / "index.json").write_text(json.dumps(index, indent=2, ensure_ascii=False) + "\n")
 
 
 def pull_listings() -> None:
     """Download all active shop listings as JSON files."""
+    from etsync.data_repo import commit_sync
+
     api = _get_api()
     try:
         shop_id = int(settings.shop_id)
@@ -84,16 +101,20 @@ def pull_listings() -> None:
     listings_dir = data_dir / "listings"
     listings_dir.mkdir(parents=True, exist_ok=True)
 
+    synced_at = datetime.now(timezone.utc).isoformat()
+
     typer.echo(f"Pulling listings for shop {shop_id}...")
     listings = _fetch_all_listings(api, shop_id)
 
     if not listings:
         typer.echo("No active listings found.")
-        _save_index(listings_dir, [])
+        _save_index(listings_dir, [], synced_at)
+        commit_sync(data_dir, count=0, synced_at=synced_at)
         return
 
     for listing in listings:
         _save_listing(listings_dir, listing)
 
-    _save_index(listings_dir, listings)
+    _save_index(listings_dir, listings, synced_at)
+    commit_sync(data_dir, count=len(listings), synced_at=synced_at)
     typer.echo(f"Saved {len(listings)} listing(s) to {listings_dir}")

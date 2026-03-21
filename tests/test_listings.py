@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from etsync.listings.pull import _fetch_all_listings, _save_index, _save_listing
+from etsync.listings.pull import _build_index_entry, _fetch_all_listings, _save_index, _save_listing
 
 
 def _fake_listing(listing_id: int, title: str = "Test item") -> dict:
@@ -9,8 +9,11 @@ def _fake_listing(listing_id: int, title: str = "Test item") -> dict:
         "listing_id": listing_id,
         "title": title,
         "state": "active",
+        "creation_timestamp": 1699000000,
         "last_modified_timestamp": 1700000000,
         "price": {"amount": 1000, "divisor": 100, "currency_code": "EUR"},
+        "tags": ["metal", "art"],
+        "quantity": 3,
     }
 
 
@@ -56,34 +59,58 @@ def test_save_listing_preserves_nulls(tmp_path: Path):
     assert data["description"] is None
 
 
+# --- _build_index_entry ---
+
+
+def test_index_entry_basic_fields():
+    entry = _build_index_entry(_fake_listing(42, "Widget"))
+    assert entry["listing_id"] == 42
+    assert entry["title"] == "Widget"
+    assert entry["state"] == "active"
+    assert entry["updated_timestamp"] == 1700000000
+
+
+def test_index_entry_url():
+    entry = _build_index_entry(_fake_listing(42))
+    assert entry["url"] == "https://www.etsy.com/listing/42"
+
+
+def test_index_entry_price():
+    entry = _build_index_entry(_fake_listing(42))
+    assert entry["price"]["amount"] == 1000
+    assert entry["price"]["currency"] == "EUR"
+
+
+def test_index_entry_tags_and_quantity():
+    entry = _build_index_entry(_fake_listing(42))
+    assert entry["tags"] == ["metal", "art"]
+    assert entry["quantity"] == 3
+
+
+def test_index_entry_creation_timestamp():
+    entry = _build_index_entry(_fake_listing(42))
+    assert entry["creation_timestamp"] == 1699000000
+
+
 # --- _save_index ---
 
 
 def test_save_index(tmp_path: Path):
     listings = [_fake_listing(1, "A"), _fake_listing(2, "B")]
-    _save_index(tmp_path, listings)
+    _save_index(tmp_path, listings, "2026-03-21T10:00:00+00:00")
     index = json.loads((tmp_path / "index.json").read_text())
+    assert index["count"] == 2
+    assert index["synced_at"] == "2026-03-21T10:00:00+00:00"
     assert len(index["listings"]) == 2
     assert index["listings"][0]["listing_id"] == 1
     assert index["listings"][1]["title"] == "B"
 
 
 def test_save_index_empty(tmp_path: Path):
-    _save_index(tmp_path, [])
+    _save_index(tmp_path, [], "2026-03-21T10:00:00+00:00")
     index = json.loads((tmp_path / "index.json").read_text())
     assert index["listings"] == []
-
-
-def test_save_index_fields(tmp_path: Path):
-    listings = [_fake_listing(10, "Item")]
-    _save_index(tmp_path, listings)
-    entry = json.loads((tmp_path / "index.json").read_text())["listings"][0]
-    assert entry == {
-        "listing_id": 10,
-        "title": "Item",
-        "state": "active",
-        "updated_timestamp": 1700000000,
-    }
+    assert index["count"] == 0
 
 
 # --- _fetch_all_listings ---

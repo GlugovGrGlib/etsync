@@ -2,7 +2,10 @@ import typer
 
 app = typer.Typer(help="etsync — scriptable Etsy shop management")
 pull_app = typer.Typer(help="Pull data from Etsy")
+diff_app = typer.Typer(help="Show changes between syncs")
+
 app.add_typer(pull_app, name="pull")
+app.add_typer(diff_app, name="diff")
 
 
 @app.command()
@@ -13,7 +16,28 @@ def login() -> None:
     do_login()
 
 
+@app.command()
+def query(sql: str = typer.Argument(help="SQL query to run against the analytics database")) -> None:
+    """Run a SQL query against the analytics DuckDB."""
+    from etsync.analytics.query import query_command
+
+    query_command(sql)
+
+
+@diff_app.command("listings")
+def diff_listings() -> None:
+    """Show changes in listings since the last sync."""
+    from etsync.config import get_data_dir
+    from etsync.data_repo import diff_last_sync
+
+    data_dir = get_data_dir()
+    output = diff_last_sync(data_dir)
+    typer.echo(output)
+
+
 # Register domain subcommands
 from etsync.listings import register_commands  # noqa: E402
+from etsync.analytics import register_commands as register_analytics  # noqa: E402
 
 register_commands(pull_app)
+register_analytics(pull_app)
