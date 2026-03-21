@@ -35,7 +35,7 @@ uv run ty check              # type check
 
 - **Separate modules per function domain** — each concern (listings, orders, inventory) is its own subpackage under `etsync/`. Domain modules register their own CLI subcommands.
 - **TOML as local data format** — all exported shop data is saved as TOML. JSON from the API is converted on ingest.
-- **External data directory** — synced data defaults to `~/.etsync/data/`, configurable per environment. Never in git.
+- **Data directory** — synced data lives in `pwd/.etsync/{env_name}/` (e.g., `.etsync/glugowskimetalartist/`). JSON from API goes to `listings/*.json`, analytics to `analytics.db`. The `~/.etsync/data/` path is NOT the active data dir — config defaults to project-root `.etsync/`.
 - **dynaconf for config** — `settings.toml` (shop_id, data_dir) + `.secrets.toml` (api_keystring, tokens). Use `ETSYNC_ENV` to switch shops. Never commit secrets.
 - **OpenSpec for planning** — design docs live in `docs/changes/` following the OpenSpec artifact format (proposal, specs, design, tasks).
 
