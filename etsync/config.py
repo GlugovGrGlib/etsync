@@ -12,6 +12,7 @@ settings = Dynaconf(
     validators=[
         Validator("api_base_url", default="https://api.etsy.com"),
         Validator("data_dir", default=str(_root / ".etsync")),
+        Validator("languages", default=[]),
     ],
 )
 

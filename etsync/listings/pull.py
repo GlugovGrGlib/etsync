@@ -53,7 +53,9 @@ def _fetch_all_listings(api, shop_id: int) -> list[dict]:  # noqa: ANN001
 
 def _save_listing(listings_dir: Path, listing: dict) -> None:
     listing_id = listing["listing_id"]
-    path = listings_dir / f"{listing_id}.json"
+    listing_dir = listings_dir / str(listing_id)
+    listing_dir.mkdir(parents=True, exist_ok=True)
+    path = listing_dir / "listing.json"
     path.write_text(json.dumps(listing, indent=2, ensure_ascii=False) + "\n")
 
 
@@ -87,7 +89,11 @@ def _save_index(listings_dir: Path, listings: list[dict], synced_at: str) -> Non
     (listings_dir / "index.json").write_text(json.dumps(index, indent=2, ensure_ascii=False) + "\n")
 
 
-def pull_listings() -> None:
+def pull_listings(
+    with_translations: bool = typer.Option(
+        False, "--with-translations", help="Also pull translations for each listing"
+    ),
+) -> None:
     """Download all active shop listings as JSON files."""
     from etsync.data_repo import commit_sync
 
@@ -116,5 +122,16 @@ def pull_listings() -> None:
         _save_listing(listings_dir, listing)
 
     _save_index(listings_dir, listings, synced_at)
+
+    if with_translations:
+        from etsync.listings.translations import pull_translations_for_listings
+
+        languages: list[str] = settings.languages
+        if not languages:
+            typer.echo("No languages configured in settings.toml. Skipping translations.", err=True)
+        else:
+            listing_ids = [listing["listing_id"] for listing in listings]
+            pull_translations_for_listings(api, shop_id, listings_dir, listing_ids, languages)
+
     commit_sync(data_dir, count=len(listings), synced_at=synced_at)
     typer.echo(f"Saved {len(listings)} listing(s) to {listings_dir}")

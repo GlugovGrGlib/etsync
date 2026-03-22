@@ -264,3 +264,62 @@ If you cannot opt out, factor the 12-15% into your pricing. The fee applies when
 | Listing gets no views at all | Rework tags and title, then renew |
 | Listing has been dead for 3+ months | Deactivate. Create a fresh listing with new photos, title, tags |
 | Listing is performing well | Leave it alone. Do not touch the title. |
+
+---
+
+## Etsy API Field Constraints
+
+Hard limits enforced by the Etsy API. Requests that violate these are rejected with a 400 error. The `etsync push` commands validate locally before sending.
+
+### Listing fields
+
+| Field | Constraint | Notes |
+|-------|-----------|-------|
+| `title` | ≤ 140 characters | Only first 40-50 chars show on mobile/Google |
+| `description` | ≤ 65,535 characters | First 160 chars = Google meta-description |
+| `tags` | Max 13 tags | Use all 13 slots |
+| `tags` (each) | ≤ 20 characters | Multi-word phrases, no single words |
+| `tags` (total) | ≤ 260 characters combined | Across all 13 tags |
+| `materials` | Max 13 entries | Each ≤ 45 characters |
+| `who_made` | Enum: `i_did`, `someone_else`, `collective` | Required |
+| `when_made` | Enum: e.g. `2020_2025`, `made_to_order` | Required |
+| `taxonomy_id` | Integer | Must be a valid Etsy taxonomy node |
+| `shipping_profile_id` | Integer | Must exist in your shop |
+| `quantity` | 1-999 | Required for active listings |
+| `price` | > 0.20 USD (or equivalent) | Etsy minimum |
+| `state` | `active`, `draft`, `inactive` | Cannot set to `sold_out` or `expired` |
+
+### Translation fields
+
+| Field | Constraint | Notes |
+|-------|-----------|-------|
+| `title` | ≤ 140 characters | Same as listing title |
+| `description` | ≤ 65,535 characters | Same as listing description |
+| `tags` (each) | ≤ 20 characters | Same as listing tags |
+| `tags` | Max 13 tags | Same as listing tags |
+
+All three fields are optional in a translation — you can push just `title` without touching `description` or `tags`.
+
+### Image and video constraints
+
+| Resource | Constraint |
+|----------|-----------|
+| Photos per listing | Max 10 |
+| Photo min resolution | 2000px shortest side |
+| Photo file size | ≤ 1 MB |
+| Photo formats | JPG, GIF, PNG |
+| Videos per listing | 1 |
+| Video max file size | 100 MB |
+| Video min resolution | 500px |
+| Video formats | MP4, MOV, AVI |
+| Alt text per image | ≤ 250 characters |
+
+### Common API errors from constraint violations
+
+| Error message | Cause | Fix |
+|--------------|-------|-----|
+| `cannot be more than 20 characters` | A tag exceeds 20 chars | Shorten the tag |
+| `cannot be more than 13` | More than 13 tags | Remove excess tags |
+| `title is too long` | Title exceeds 140 chars | Shorten the title |
+| `Access token lacks scope` | Token missing `listings_w` | Re-run `etsync login` with `listings_w` scope |
+| `listing_id not found` | Listing deleted or wrong ID | Verify listing exists on Etsy |

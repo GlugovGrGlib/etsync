@@ -150,12 +150,27 @@ etsync push listings
 | Modify | `etsync/listings/__init__.py` | Export push-related symbols |
 | Modify | `etsync/listings/pull.py` | Record `last_modified_tsz` in index.toml `pull_metadata` section |
 
+## Local Validation
+
+Before sending any data to the API, the push command validates fields against Etsy's constraints. Invalid listings are skipped with clear error messages.
+
+| Field | Constraint | Source |
+|-------|-----------|--------|
+| `title` | ≤ 140 characters | Etsy API |
+| `tags` | Each tag ≤ 20 characters | Etsy API |
+| `tags` | Max 13 tags per listing | Etsy API |
+
+This prevents opaque API errors like `"There was a problem with /tags : cannot be more than 20 characters"` and gives actionable feedback before any network call is made.
+
+The same validation applies to translation pushes (title and tags fields).
+
 ## Error Handling
 
 | Error | Behavior |
 |-------|----------|
 | No local listing files found | Print message, exit cleanly |
 | Listing ID not found locally (`--id`) | Print error with available IDs, exit code 1 |
+| Local validation failure | Report field-level errors, skip listing, continue with remaining |
 | Listing deleted on Etsy (404) | Report as failed, continue with remaining |
 | Authentication expired (401/403) | Print message to re-run `etsync login`, exit code 1 |
 | Validation error from API (400) | Report field-level errors, continue with remaining |

@@ -36,7 +36,7 @@ class FakeAPI:
 def test_save_listing_writes_json(tmp_path: Path):
     listing = _fake_listing(42, "Widget")
     _save_listing(tmp_path, listing)
-    path = tmp_path / "42.json"
+    path = tmp_path / "42" / "listing.json"
     assert path.exists()
     data = json.loads(path.read_text())
     assert data["listing_id"] == 42
@@ -46,7 +46,7 @@ def test_save_listing_writes_json(tmp_path: Path):
 def test_save_listing_preserves_nested_data(tmp_path: Path):
     listing = _fake_listing(99, "Gadget")
     _save_listing(tmp_path, listing)
-    data = json.loads((tmp_path / "99.json").read_text())
+    data = json.loads((tmp_path / "99" / "listing.json").read_text())
     assert data["price"]["amount"] == 1000
     assert data["price"]["currency_code"] == "EUR"
 
@@ -55,7 +55,7 @@ def test_save_listing_preserves_nulls(tmp_path: Path):
     listing = _fake_listing(7, "Nullish")
     listing["description"] = None
     _save_listing(tmp_path, listing)
-    data = json.loads((tmp_path / "7.json").read_text())
+    data = json.loads((tmp_path / "7" / "listing.json").read_text())
     assert data["description"] is None
 
 
