@@ -88,7 +88,16 @@ def _wait_for_callback() -> tuple[str, str]:
         def log_message(self, format: str, *args: object) -> None:  # noqa: A002
             pass  # suppress request logs
 
-    server = HTTPServer((_CALLBACK_HOST, _CALLBACK_PORT), CallbackHandler)
+    import socket
+
+    class DualStackHTTPServer(HTTPServer):
+        address_family = socket.AF_INET6
+
+        def server_bind(self) -> None:
+            self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+            super().server_bind()
+
+    server = DualStackHTTPServer(("::", _CALLBACK_PORT), CallbackHandler)
     server.serve_forever()
 
     if error:
@@ -121,7 +130,7 @@ def login() -> None:
     auth_url, auth_state = helper.get_auth_code()
     print(f"Opening browser for Etsy authorization...\n{auth_url}")
     print(f"Waiting for callback on {redirect_uri} ...")
-    webbrowser.open(auth_url)
+    print(f"\nOpen this URL in your browser:\n{auth_url}\n")
 
     code, callback_state = _wait_for_callback()
     helper.set_authorisation_code(code, callback_state)

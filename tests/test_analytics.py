@@ -1,103 +1,133 @@
-import json
-from datetime import date
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import duckdb
 import pytest
 
-from etsync.analytics.pull import _ensure_tables, snapshot_listings, snapshot_shop
+from etsync.analytics.pull import pull_listing_stats, pull_shop_stats
 from etsync.analytics.query import format_table, run_query
+from etsync.analytics.schema import connect_db
 
 
 @pytest.fixture
-def db_path(tmp_path: Path) -> Path:
-    return tmp_path / "analytics.db"
+def db_dir(tmp_path: Path) -> Path:
+    return tmp_path
 
 
 @pytest.fixture
-def con(db_path: Path):
-    connection = duckdb.connect(str(db_path))
-    _ensure_tables(connection)
+def db_path(db_dir: Path) -> Path:
+    return db_dir / "analytics.db"
+
+
+@pytest.fixture
+def con(db_dir: Path):
+    connection = connect_db(db_dir)
     yield connection
     connection.close()
 
 
-@pytest.fixture
-def listings_dir(tmp_path: Path) -> Path:
-    d = tmp_path / "listings"
-    d.mkdir()
-    listing1 = {
-        "listing_id": 1001,
-        "title": "Handmade Mug",
-        "views": 150,
-        "num_favorers": 12,
-        "price": {"amount": 2500, "currency_code": "EUR"},
+def _make_listing(listing_id: int, title: str, views: int, favorites: int, price: int = 2500) -> dict:
+    return {
+        "listing_id": listing_id,
+        "title": title,
+        "views": views,
+        "num_favorers": favorites,
+        "price": {"amount": price, "currency_code": "EUR"},
         "quantity": 5,
         "state": "active",
+        "tags": ["handmade", "gift"],
+        "taxonomy_path": ["Art", "Sculpture"],
+        "creation_timestamp": 1700000000,
+        "last_modified_timestamp": 1740000000,
+        "featured_rank": None,
     }
-    listing2 = {
-        "listing_id": 1002,
-        "title": "Vintage Spoon",
-        "views": 80,
-        "num_favorers": 4,
-        "price": {"amount": 1200, "currency_code": "EUR"},
-        "quantity": 10,
-        "state": "active",
+
+
+def _make_api_with_listings(listings: list[dict]) -> MagicMock:
+    api = MagicMock()
+    api.get_listings_by_shop.return_value = {
+        "count": len(listings),
+        "results": listings,
     }
-    for listing in [listing1, listing2]:
-        (d / f"{listing['listing_id']}.json").write_text(json.dumps(listing))
-    return d
+    return api
 
 
-class TestEnsureTables:
-    def test_creates_tables(self, con: duckdb.DuckDBPyConnection):
-        tables = {row[0] for row in con.execute("SHOW TABLES").fetchall()}
-        assert "listing_snapshots" in tables
-        assert "shop_snapshots" in tables
+class TestPullListingStats:
+    def test_inserts_from_api(self, con: duckdb.DuckDBPyConnection):
+        listings = [_make_listing(1001, "Mug", 150, 12), _make_listing(1002, "Spoon", 80, 4)]
+        api = _make_api_with_listings(listings)
 
-    def test_idempotent(self, con: duckdb.DuckDBPyConnection):
-        _ensure_tables(con)
-        assert len(con.execute("SHOW TABLES").fetchall()) == 2
-
-
-class TestSnapshotListings:
-    def test_inserts_rows(self, con: duckdb.DuckDBPyConnection, listings_dir: Path):
-        count = snapshot_listings(con, listings_dir, date(2026, 3, 21))
+        count = pull_listing_stats(api, 123, con)
         assert count == 2
         rows = con.execute("SELECT * FROM listing_snapshots ORDER BY listing_id").fetchall()
         assert len(rows) == 2
         assert rows[0][0] == 1001
         assert rows[0][4] == 25.0  # 2500 cents -> 25.00
 
-    def test_appends_snapshots(self, con: duckdb.DuckDBPyConnection, listings_dir: Path):
-        snapshot_listings(con, listings_dir, date(2026, 3, 20))
-        snapshot_listings(con, listings_dir, date(2026, 3, 21))
+    def test_captures_v2_fields(self, con: duckdb.DuckDBPyConnection):
+        api = _make_api_with_listings([_make_listing(1001, "Mug", 150, 12)])
+        pull_listing_stats(api, 123, con)
+
+        row = con.execute("SELECT tags, taxonomy_path FROM listing_snapshots WHERE listing_id = 1001").fetchone()
+        assert row is not None
+        assert row[0] == ["handmade", "gift"]
+        assert row[1] == ["Art", "Sculpture"]
+
+    def test_empty_response(self, con: duckdb.DuckDBPyConnection):
+        api = _make_api_with_listings([])
+        count = pull_listing_stats(api, 123, con)
+        assert count == 0
+
+    def test_appends_snapshots(self, con: duckdb.DuckDBPyConnection):
+        api = _make_api_with_listings([_make_listing(1001, "Mug", 150, 12)])
+        pull_listing_stats(api, 123, con)
+        pull_listing_stats(api, 123, con)
         rows = con.execute("SELECT COUNT(*) FROM listing_snapshots").fetchone()
         assert rows is not None
-        assert rows[0] == 4
-
-    def test_empty_directory(self, con: duckdb.DuckDBPyConnection, tmp_path: Path):
-        empty_dir = tmp_path / "empty"
-        empty_dir.mkdir()
-        assert snapshot_listings(con, empty_dir, date(2026, 3, 21)) == 0
+        assert rows[0] == 2
 
 
-class TestSnapshotShop:
-    def test_inserts_row(self, con: duckdb.DuckDBPyConnection):
-        snapshot_shop(con, shop_id=12345, num_listings=42, snapshot_dt=date(2026, 3, 21))
+class TestPullShopStats:
+    def test_inserts_shop_snapshot(self, con: duckdb.DuckDBPyConnection):
+        api = MagicMock()
+        api.get_shop.return_value = {
+            "listing_active_count": 42,
+            "num_favorers": 100,
+            "digital_listing_count": 5,
+            "currency_code": "EUR",
+            "login_name": "TestShop",
+        }
+        pull_shop_stats(api, 123, con)
         rows = con.execute("SELECT * FROM shop_snapshots").fetchall()
         assert len(rows) == 1
-        assert rows[0][0] == 12345
-        assert rows[0][1] == 42
+        assert rows[0][0] == 123  # shop_id
+        assert rows[0][1] == 42  # num_listings
+
+    def test_captures_v2_fields(self, con: duckdb.DuckDBPyConnection):
+        api = MagicMock()
+        api.get_shop.return_value = {
+            "listing_active_count": 42,
+            "num_favorers": 100,
+            "digital_listing_count": 5,
+            "currency_code": "EUR",
+            "login_name": "TestShop",
+        }
+        pull_shop_stats(api, 123, con)
+        row = con.execute("SELECT num_favorers, currency_code, login_name FROM shop_snapshots").fetchone()
+        assert row is not None
+        assert row[0] == 100
+        assert row[1] == "EUR"
+        assert row[2] == "TestShop"
 
 
 class TestRunQuery:
-    def test_select(self, db_path: Path, con: duckdb.DuckDBPyConnection, listings_dir: Path):
-        snapshot_listings(con, listings_dir, date(2026, 3, 21))
+    def test_select(self, db_path: Path, con: duckdb.DuckDBPyConnection):
+        api = _make_api_with_listings([_make_listing(1001, "Mug", 150, 12)])
+        pull_listing_stats(api, 123, con)
         con.close()
         columns, rows = run_query(db_path, "SELECT listing_id, title FROM listing_snapshots ORDER BY listing_id")
         assert columns == ["listing_id", "title"]
-        assert len(rows) == 2
+        assert len(rows) == 1
         assert rows[0][0] == 1001
 
     def test_empty_result(self, db_path: Path, con: duckdb.DuckDBPyConnection):
