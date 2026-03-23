@@ -186,22 +186,36 @@ class TestPullTransactions:
 
 
 class TestPullLedger:
-    def test_inserts_entries(self, con: duckdb.DuckDBPyConnection):
+    @staticmethod
+    def _ledger_mock(entries: list[dict]) -> MagicMock:
+        """Return an API mock that yields entries on the first window, then empty."""
         api = MagicMock()
-        api.get_shop_payment_account_ledger_entries.return_value = {
-            "count": 2,
-            "results": [_make_ledger_entry(1, 1000), _make_ledger_entry(2, 2000)],
-        }
+        first_call = True
+
+        def _side_effect(*args, **kwargs):  # noqa: ANN002, ANN003
+            nonlocal first_call
+            if first_call:
+                first_call = False
+                return {"count": len(entries), "results": entries}
+            return {"count": 0, "results": []}
+
+        api.get_shop_payment_account_ledger_entries.side_effect = _side_effect
+        return api
+
+    def test_inserts_entries(self, con: duckdb.DuckDBPyConnection):
+        api = self._ledger_mock([_make_ledger_entry(1, 1000), _make_ledger_entry(2, 2000)])
         count = pull_ledger(api, 123, con)
         assert count == 2
 
     def test_replaces_on_duplicate(self, con: duckdb.DuckDBPyConnection):
-        api = MagicMock()
-        api.get_shop_payment_account_ledger_entries.return_value = {
-            "count": 1,
-            "results": [_make_ledger_entry(1, 1000)],
-        }
+        api = self._ledger_mock([_make_ledger_entry(1, 1000)])
         pull_ledger(api, 123, con)
+        # Reset side_effect for second call
+        api.get_shop_payment_account_ledger_entries.side_effect = None
+        api.get_shop_payment_account_ledger_entries.return_value = {
+            "count": 0,
+            "results": [],
+        }
         pull_ledger(api, 123, con)
 
         rows = con.execute("SELECT COUNT(*) FROM ledger_entries").fetchone()

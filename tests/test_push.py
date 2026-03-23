@@ -7,6 +7,7 @@ from etsync.listings.push import (
     _format_diff,
     _load_local_listings,
     _normalize_value,
+    _print_summary,
     diff_listing,
     validate_listing,
 )
@@ -233,3 +234,37 @@ class TestValidateListing:
     def test_no_tags_or_title(self):
         listing = {"description": "Just a description"}
         assert validate_listing(listing) == []
+
+
+# --- _print_summary ---
+
+
+class TestPrintSummary:
+    def test_all_categories(self, capsys):
+        updated = [(42, "Widget A", 2), (43, "Widget B", 1)]
+        skipped = [(44, "Widget C", "no changes")]
+        failed = [(45, "Widget D", "fetch error: timeout")]
+
+        _print_summary(updated, skipped, failed)
+
+        out = capsys.readouterr().out
+        assert "2 updated, 1 skipped, 1 failed" in out
+        assert "[42] Widget A (2 field(s))" in out
+        assert "[43] Widget B (1 field(s))" in out
+        assert "[44] Widget C — no changes" in out
+        assert "[45] Widget D — fetch error: timeout" in out
+
+    def test_empty_summary(self, capsys):
+        _print_summary([], [], [])
+        out = capsys.readouterr().out
+        assert "0 updated, 0 skipped, 0 failed" in out
+        assert "Updated:" not in out
+        assert "Failed:" not in out
+        assert "Skipped:" not in out
+
+    def test_only_skipped(self, capsys):
+        _print_summary([], [(1, "Item", "no changes")], [])
+        out = capsys.readouterr().out
+        assert "Skipped:" in out
+        assert "Updated:" not in out
+        assert "Failed:" not in out

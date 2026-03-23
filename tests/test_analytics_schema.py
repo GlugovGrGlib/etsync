@@ -31,6 +31,9 @@ class TestConnectDbFresh:
             "transactions",
             "ledger_entries",
             "reviews",
+            "ad_campaign_snapshots",
+            "ad_listing_snapshots",
+            "ad_keywords",
         }
         assert expected == tables
 

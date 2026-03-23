@@ -120,14 +120,20 @@ def _create_translation(api, shop_id: int, listing_id: int, language: str, paylo
     """POST a new translation via the Etsy REST API."""
     url = f"{ETSY_API_BASEURL}/shops/{shop_id}/listings/{listing_id}/translations/{language}"
     resp = api.session.post(url, json=payload)
-    resp.raise_for_status()
+    _check_response(resp)
 
 
 def _update_translation(api, shop_id: int, listing_id: int, language: str, payload: dict) -> None:  # noqa: ANN001
     """PUT an updated translation via the Etsy REST API."""
     url = f"{ETSY_API_BASEURL}/shops/{shop_id}/listings/{listing_id}/translations/{language}"
     resp = api.session.put(url, json=payload)
-    resp.raise_for_status()
+    _check_response(resp)
+
+
+def _check_response(resp) -> None:  # noqa: ANN001
+    """Raise with the response body included in the error message."""
+    if not resp.ok:
+        raise Exception(f"{resp.status_code} {resp.reason}: {resp.text}")
 
 
 def _scan_local_translations(listings_dir: Path, listing_ids: list[int], languages: list[str]) -> list[tuple[int, str]]:
@@ -182,7 +188,9 @@ def push_translations(
         try:
             remote = _fetch_translation(api, shop_id, lid, lang)
         except Exception as exc:
-            typer.echo(f"  [{lid}/{lang}] Failed to fetch remote: {exc}", err=True)
+            from etsync.listings.push import _extract_error_detail
+
+            typer.echo(f"  [{lid}/{lang}] Failed to fetch remote: {_extract_error_detail(exc)}", err=True)
             failed += 1
             continue
 
@@ -208,12 +216,15 @@ def push_translations(
             skipped += 1
             continue
 
+        # Etsy PUT/POST requires all translation fields, not just changed ones.
+        payload = {f: local[f] for f in TRANSLATION_FIELDS if f in local}
+
         try:
             if remote is None:
-                _create_translation(api, shop_id, lid, lang, diff)
+                _create_translation(api, shop_id, lid, lang, payload)
                 created += 1
             else:
-                _update_translation(api, shop_id, lid, lang, diff)
+                _update_translation(api, shop_id, lid, lang, payload)
                 updated += 1
         except Exception as exc:
             typer.echo(f"  [{lid}/{lang}] Failed: {exc}", err=True)

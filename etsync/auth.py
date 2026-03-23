@@ -1,6 +1,5 @@
 import secrets
 import threading
-import webbrowser
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path

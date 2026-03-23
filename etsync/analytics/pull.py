@@ -153,7 +153,9 @@ def pull_receipts(api, shop_id: int, con: duckdb.DuckDBPyConnection) -> int:  # 
                     receipt.get("receipt_id"),
                     shop_id,
                     receipt.get("buyer_email", ""),
-                    receipt.get("formatted_address", {}).get("country_iso", "") if isinstance(receipt.get("formatted_address"), dict) else "",
+                    receipt.get("formatted_address", {}).get("country_iso", "")
+                    if isinstance(receipt.get("formatted_address"), dict)
+                    else "",
                     grandtotal.get("amount") if isinstance(grandtotal, dict) else grandtotal,
                     grandtotal.get("currency_code", "") if isinstance(grandtotal, dict) else "",
                     subtotal.get("amount") if isinstance(subtotal, dict) else subtotal,

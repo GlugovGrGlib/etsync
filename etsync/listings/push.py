@@ -162,6 +162,17 @@ def validate_listing(listing: dict) -> list[ValidationError]:
     return errors
 
 
+def _extract_error_detail(exc: Exception) -> str:
+    """Extract the response body from an HTTP error, falling back to str(exc)."""
+    response = getattr(exc, "response", None)
+    if response is not None:
+        try:
+            return f"{response.status_code} {response.reason}: {response.text}"
+        except Exception:
+            pass
+    return str(exc)
+
+
 def _push_listing(api, shop_id: int, listing_id: int, changes: list[FieldChange]) -> None:  # noqa: ANN001
     """Push changed fields to the Etsy API using PATCH."""
     from etsyv3.models.listing_request import UpdateListingRequest
@@ -199,22 +210,24 @@ def push_listings(
         typer.echo("No local listing files found.")
         return
 
-    updated = 0
-    skipped = 0
-    failed = 0
+    updated_items: list[tuple[int, str, int]] = []  # (id, title, field_count)
+    skipped_items: list[tuple[int, str, str]] = []  # (id, title, reason)
+    failed_items: list[tuple[int, str, str]] = []  # (id, title, error)
 
     for local in local_listings:
         lid = local["listing_id"]
+        title = local.get("title", "")
         try:
             remote = api.get_listing(listing_id=lid)
         except Exception as exc:
-            typer.echo(f"  [{lid}] Failed to fetch remote: {exc}", err=True)
-            failed += 1
+            error_detail = _extract_error_detail(exc)
+            typer.echo(f"  [{lid}] Failed to fetch remote: {error_detail}", err=True)
+            failed_items.append((lid, title, f"fetch error: {error_detail}"))
             continue
 
         diff = diff_listing(local, remote)
         if not diff.changes:
-            skipped += 1
+            skipped_items.append((lid, diff.title, "no changes"))
             continue
 
         typer.echo(_format_diff(diff))
@@ -225,19 +238,44 @@ def push_listings(
         if errors:
             for err in errors:
                 typer.echo(f"  [{lid}] INVALID {err.field}: {err.message}", err=True)
-            failed += 1
+            failed_items.append((lid, diff.title, "; ".join(f"{e.field}: {e.message}" for e in errors)))
             continue
 
         if dry_run:
-            skipped += 1
+            skipped_items.append((lid, diff.title, "dry run"))
             continue
 
         try:
             _push_listing(api, shop_id, lid, diff.changes)
             typer.echo(f"  [{lid}] Updated ({len(diff.changes)} field(s))")
-            updated += 1
+            updated_items.append((lid, diff.title, len(diff.changes)))
         except Exception as exc:
-            typer.echo(f"  [{lid}] Failed: {exc}", err=True)
-            failed += 1
+            error_detail = _extract_error_detail(exc)
+            typer.echo(f"  [{lid}] Failed: {error_detail}", err=True)
+            failed_items.append((lid, diff.title, error_detail))
 
-    typer.echo(f"\nSummary: {updated} updated, {skipped} skipped, {failed} failed")
+    _print_summary(updated_items, skipped_items, failed_items)
+
+
+def _print_summary(
+    updated: list[tuple[int, str, int]],
+    skipped: list[tuple[int, str, str]],
+    failed: list[tuple[int, str, str]],
+) -> None:
+    """Print a detailed push summary grouped by outcome."""
+    typer.echo(f"\nSummary: {len(updated)} updated, {len(skipped)} skipped, {len(failed)} failed")
+
+    if updated:
+        typer.echo("\nUpdated:")
+        for lid, title, count in updated:
+            typer.echo(f"  [{lid}] {title} ({count} field(s))")
+
+    if failed:
+        typer.echo("\nFailed:")
+        for lid, title, reason in failed:
+            typer.echo(f"  [{lid}] {title} — {reason}")
+
+    if skipped:
+        typer.echo("\nSkipped:")
+        for lid, title, reason in skipped:
+            typer.echo(f"  [{lid}] {title} — {reason}")
