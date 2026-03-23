@@ -157,7 +157,6 @@ TAG_FIXES: dict[str, str] = {
     "cathedral inspired art": "cathedral style art",
     "chess lover garden gift": "chess garden gift",
     "collapsible kinetic art": "kinetic folding art",
-    "contemplative yard decor": "contemplative decor",
     "corten sphere pedestal": "corten orb pedestal",
     "corten style candleholder": "corten candleholder",
     "corten style garden art": "corten garden art",
@@ -296,24 +295,28 @@ def main() -> None:
     total_listings = 0
 
     for child in sorted(listings_dir.iterdir()):
-        if child.suffix == ".json" and child.stem.isdigit():
-            total_tags, fixed = fix_listing_tags(child)
-            if fixed > 0:
-                print(f"  {child.stem}: fixed {fixed}/{total_tags} tags")
-                total_fixed += fixed
-                total_listings += 1
+        if child.is_dir() and child.name.isdigit():
+            listing_path = child / "listing.json"
+            if listing_path.exists():
+                total_tags, fixed = fix_listing_tags(listing_path)
+                if fixed > 0:
+                    print(f"  {child.name}: fixed {fixed}/{total_tags} tags")
+                    total_fixed += fixed
+                    total_listings += 1
 
     print(f"\nFixed {total_fixed} tags across {total_listings} listings")
 
     # Verify no remaining violations
     remaining = 0
     for child in sorted(listings_dir.iterdir()):
-        if child.suffix == ".json" and child.stem.isdigit():
-            data = json.loads(child.read_text())
-            for tag in data.get("tags", []):
-                if len(tag) > MAX_TAG_LEN:
-                    print(f"  STILL LONG: {child.stem}: \"{tag}\" ({len(tag)})")
-                    remaining += 1
+        if child.is_dir() and child.name.isdigit():
+            listing_path = child / "listing.json"
+            if listing_path.exists():
+                data = json.loads(listing_path.read_text())
+                for tag in data.get("tags", []):
+                    if len(tag) > MAX_TAG_LEN:
+                        print(f'  STILL LONG: {child.name}: "{tag}" ({len(tag)})')
+                        remaining += 1
 
     if remaining:
         print(f"\n{remaining} tags still exceed {MAX_TAG_LEN} chars!")

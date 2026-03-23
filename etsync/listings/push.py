@@ -123,36 +123,23 @@ def _truncate(value: Any, max_len: int = 80) -> str:
 
 
 def _load_local_listings(listings_dir: Path, listing_id: int | None = None) -> list[dict]:
-    """Load local listing JSON files. Supports both nested and flat layout."""
+    """Load local listing JSON files from nested layout (listings/{ID}/listing.json)."""
     results = []
     if listing_id is not None:
-        # Try nested first, then flat
-        nested = listings_dir / str(listing_id) / "listing.json"
-        flat = listings_dir / f"{listing_id}.json"
-        path = nested if nested.exists() else flat
+        path = listings_dir / str(listing_id) / "listing.json"
         if not path.exists():
             typer.echo(f"Local listing file not found for {listing_id}", err=True)
             raise typer.Exit(1)
         results.append(json.loads(path.read_text()))
         return results
 
-    # Load all listings from nested dirs and flat files
-    seen: set[int] = set()
     for child in sorted(listings_dir.iterdir()):
         if child.is_dir() and child.name.isdigit():
             listing_path = child / "listing.json"
             if listing_path.exists():
                 data = json.loads(listing_path.read_text())
-                lid = data.get("listing_id")
-                if lid and lid not in seen:
+                if data.get("listing_id"):
                     results.append(data)
-                    seen.add(lid)
-        elif child.suffix == ".json" and child.stem.isdigit() and child.name != "index.json":
-            data = json.loads(child.read_text())
-            lid = data.get("listing_id")
-            if lid and lid not in seen:
-                results.append(data)
-                seen.add(lid)
     return results
 
 
