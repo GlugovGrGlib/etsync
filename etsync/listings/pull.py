@@ -118,8 +118,11 @@ def pull_listings(
         commit_sync(data_dir, count=0, synced_at=synced_at)
         return
 
+    from etsync.listings.push import save_snapshot
+
     for listing in listings:
         _save_listing(listings_dir, listing)
+        save_snapshot(listings_dir, listing)
 
     _save_index(listings_dir, listings, synced_at)
 

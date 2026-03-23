@@ -42,6 +42,9 @@ UPDATABLE_FIELDS: set[str] = {
 }
 
 
+SNAPSHOTS_DIR_NAME = ".snapshots"
+
+
 @dataclass
 class FieldChange:
     field: str
@@ -63,19 +66,40 @@ def _normalize_value(value: Any) -> Any:
     return value
 
 
-def diff_listing(local: dict, remote: dict) -> ListingDiff:
-    """Compare local listing against remote, returning only changed updatable fields."""
+def _snapshots_dir(listings_dir: Path) -> Path:
+    return listings_dir / SNAPSHOTS_DIR_NAME
+
+
+def load_snapshot(listings_dir: Path, listing_id: int) -> dict | None:
+    """Load the last-synced snapshot for a listing, or None if not found."""
+    path = _snapshots_dir(listings_dir) / f"{listing_id}.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text())
+
+
+def save_snapshot(listings_dir: Path, listing: dict) -> None:
+    """Save a snapshot of the listing as last-synced state."""
+    snap_dir = _snapshots_dir(listings_dir)
+    snap_dir.mkdir(parents=True, exist_ok=True)
+    listing_id = listing["listing_id"]
+    path = snap_dir / f"{listing_id}.json"
+    path.write_text(json.dumps(listing, indent=2, ensure_ascii=False) + "\n")
+
+
+def diff_listing(local: dict, snapshot: dict) -> ListingDiff:
+    """Compare local listing against snapshot, returning only changed updatable fields."""
     listing_id = local["listing_id"]
-    title = local.get("title", remote.get("title", ""))
+    title = local.get("title", snapshot.get("title", ""))
     changes: list[FieldChange] = []
 
     for f in UPDATABLE_FIELDS:
         if f not in local:
             continue
         local_val = local[f]
-        remote_val = remote.get(f)
-        if _normalize_value(local_val) != _normalize_value(remote_val):
-            changes.append(FieldChange(field=f, old_value=remote_val, new_value=local_val))
+        snapshot_val = snapshot.get(f)
+        if _normalize_value(local_val) != _normalize_value(snapshot_val):
+            changes.append(FieldChange(field=f, old_value=snapshot_val, new_value=local_val))
 
     return ListingDiff(listing_id=listing_id, title=title, changes=changes)
 
@@ -173,16 +197,17 @@ def _extract_error_detail(exc: Exception) -> str:
     return str(exc)
 
 
-def _push_listing(api, shop_id: int, listing_id: int, changes: list[FieldChange]) -> None:  # noqa: ANN001
-    """Push changed fields to the Etsy API using PATCH."""
-    from etsyv3.models.listing_request import UpdateListingRequest
-
-    kwargs: dict[str, Any] = {}
+def _push_listing(api, shop_id: int, listing_id: int, changes: list[FieldChange]) -> dict:  # noqa: ANN001
+    """Push changed fields to the Etsy API using PATCH. Returns the API response."""
+    url = f"{ETSY_API_BASEURL}/shops/{shop_id}/listings/{listing_id}"
+    payload: dict[str, Any] = {}
     for change in changes:
-        kwargs[change.field] = change.new_value
+        payload[change.field] = change.new_value
 
-    request = UpdateListingRequest(**kwargs)
-    api.update_listing(shop_id=shop_id, listing_id=listing_id, listing=request)
+    resp = api.session.patch(url, json=payload)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"{resp.status_code}: {resp.text}")
+    return resp.json()
 
 
 def push_listings(
@@ -192,7 +217,6 @@ def push_listings(
     """Push local listing changes to Etsy, sending only modified fields."""
     from etsync.listings.pull import _get_api
 
-    api = _get_api()
     try:
         shop_id = int(settings.shop_id)
     except AttributeError:
@@ -214,18 +238,19 @@ def push_listings(
     skipped_items: list[tuple[int, str, str]] = []  # (id, title, reason)
     failed_items: list[tuple[int, str, str]] = []  # (id, title, error)
 
+    # Lazy-init API only when we actually need to push
+    api = None
+
     for local in local_listings:
         lid = local["listing_id"]
         title = local.get("title", "")
-        try:
-            remote = api.get_listing(listing_id=lid)
-        except Exception as exc:
-            error_detail = _extract_error_detail(exc)
-            typer.echo(f"  [{lid}] Failed to fetch remote: {error_detail}", err=True)
-            failed_items.append((lid, title, f"fetch error: {error_detail}"))
+
+        snapshot = load_snapshot(listings_dir, lid)
+        if snapshot is None:
+            skipped_items.append((lid, title, "no snapshot — run `etsync pull listings` first"))
             continue
 
-        diff = diff_listing(local, remote)
+        diff = diff_listing(local, snapshot)
         if not diff.changes:
             skipped_items.append((lid, diff.title, "no changes"))
             continue
@@ -245,8 +270,14 @@ def push_listings(
             skipped_items.append((lid, diff.title, "dry run"))
             continue
 
+        if api is None:
+            api = _get_api()
+
         try:
-            _push_listing(api, shop_id, lid, diff.changes)
+            response = _push_listing(api, shop_id, lid, diff.changes)
+            # Save the full API response as snapshot so it matches Etsy's state
+            # (includes server-side encoding, timestamps, etc.)
+            save_snapshot(listings_dir, response)
             typer.echo(f"  [{lid}] Updated ({len(diff.changes)} field(s))")
             updated_items.append((lid, diff.title, len(diff.changes)))
         except Exception as exc:

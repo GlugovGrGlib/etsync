@@ -9,6 +9,8 @@ from etsync.listings.push import (
     _normalize_value,
     _print_summary,
     diff_listing,
+    load_snapshot,
+    save_snapshot,
     validate_listing,
 )
 
@@ -108,6 +110,47 @@ class TestDiffListing:
         local = {"listing_id": 42, "title": "Same"}
         remote = _fake_listing(42, title="Same")
         diff = diff_listing(local, remote)
+        assert diff.changes == []
+
+
+# --- snapshots ---
+
+
+class TestSnapshots:
+    def test_save_and_load(self, tmp_path: Path):
+        listing = _fake_listing(42)
+        save_snapshot(tmp_path, listing)
+        loaded = load_snapshot(tmp_path, 42)
+        assert loaded is not None
+        assert loaded["listing_id"] == 42
+        assert loaded["title"] == "Test item"
+
+    def test_load_missing_returns_none(self, tmp_path: Path):
+        assert load_snapshot(tmp_path, 999) is None
+
+    def test_overwrite_snapshot(self, tmp_path: Path):
+        save_snapshot(tmp_path, _fake_listing(42, title="Old"))
+        save_snapshot(tmp_path, _fake_listing(42, title="New"))
+        loaded = load_snapshot(tmp_path, 42)
+        assert loaded is not None
+        assert loaded["title"] == "New"
+
+    def test_diff_against_snapshot_detects_changes(self, tmp_path: Path):
+        original = _fake_listing(42, title="Old title", tags=["metal"])
+        save_snapshot(tmp_path, original)
+        local = _fake_listing(42, title="New title", tags=["metal", "art"])
+        snapshot = load_snapshot(tmp_path, 42)
+        assert snapshot is not None
+        diff = diff_listing(local, snapshot)
+        changed_fields = {c.field for c in diff.changes}
+        assert changed_fields == {"title", "tags"}
+
+    def test_no_diff_when_unchanged(self, tmp_path: Path):
+        listing = _fake_listing(42)
+        save_snapshot(tmp_path, listing)
+        snapshot = load_snapshot(tmp_path, 42)
+        assert snapshot is not None
+        diff = diff_listing(listing, snapshot)
         assert diff.changes == []
 
 
