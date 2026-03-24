@@ -16,6 +16,7 @@ uv sync
 ```toml
 [default]
 api_keystring = "YOUR_API_KEY"
+shared_secret = "YOUR_SHARED_SECRET"
 shop_id = 12345678
 ```
 
@@ -79,6 +80,7 @@ graph TD
         PULL_LISTINGS[etsync pull listings]
         PULL_TRANSLATIONS[etsync pull translations]
         PULL_STATS[etsync pull stats]
+        PULL_REVIEWS[etsync pull reviews]
         PUSH_LISTINGS[etsync push listings]
         PUSH_TRANSLATIONS[etsync push translations]
         QUERY[etsync query]
@@ -100,11 +102,11 @@ graph TD
         DUCKDB[DuckDB<br/>analytics storage]
     end
 
-    subgraph Storage["Data Storage (.etsync/{shop}/)"]
-        LISTING_FILES[listings/{id}.json]
-        TRANSLATION_FILES[listings/{id}/translations/{lang}.json]
-        INDEX[index.json]
-        ANALYTICSDB[analytics.db]
+    subgraph Storage["Data Storage (.etsync/shop/)"]
+        LISTING_FILES["listings/id/listing.json"]
+        TRANSLATION_FILES["listings/id/translations/lang.json"]
+        INDEX["index.json"]
+        ANALYTICSDB["analytics.db"]
     end
 
     LOGIN --> AUTH
@@ -113,6 +115,7 @@ graph TD
     PUSH_LISTINGS --> LISTINGS
     PUSH_TRANSLATIONS --> TRANSLATIONS
     PULL_STATS --> ANALYTICS
+    PULL_REVIEWS --> ANALYTICS
     QUERY --> ANALYTICS
     DIFF --> DATAREPO
     ANALYTICS_CMD --> ANALYTICS
@@ -136,8 +139,8 @@ graph TD
 .etsync/{shop_name}/
 ├── listings/
 │   ├── index.json
-│   ├── {listing_id}.json
 │   ├── {listing_id}/
+│   │   ├── listing.json
 │   │   └── translations/
 │   │       ├── de.json
 │   │       ├── fr.json
@@ -162,6 +165,9 @@ All queries run via `uv run etsync query "SQL"`. Set `ETSYNC_ENV=shopname` for m
 | `ledger_entries` | Financial ledger: fees, deposits, refunds |
 | `revenue_summary` | Aggregated revenue by period |
 | `reviews` | Shop reviews with rating, text, language, listing_id |
+| `ad_campaign_snapshots` | Campaign-level ad metrics: views, clicks, orders, spend, ROAS |
+| `ad_listing_snapshots` | Per-listing ad performance: ad views, clicks, orders, revenue |
+| `ad_keywords` | Keyword-level ad data: ROAS, orders, spend, revenue, click rate |
 
 ### Top performers (views + sales + revenue)
 
